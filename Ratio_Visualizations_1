@@ -1,0 +1,104 @@
+---
+title: "Ratio Vizualizations"
+author: "Dan"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(openintro)
+library(ggplot2)
+```
+
+### Exercise 1
+
+Insert any text here.
+
+```{r code-chunk-label}
+Ratios_post1995 |>
+  ggplot(aes(x = AGE, y = COUNT_CARRIER_DELAY_RATIO)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+### Exercise 2
+
+```{r}
+Ratios_post1995 |>
+  ggplot(aes(x = DISTANCE, y = COUNT_CARRIER_DELAY_RATIO)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+### 3
+
+```{r}
+Ratios_post1995 |>
+  ggplot(aes(x = AGE, y = CARRIER_DELAY_VS_FLIGHTS_RATIO)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+### 4
+
+```{r}
+Ratios_post1995 |>
+  ggplot(aes(x = DISTANCE, y = CARRIER_DELAY_VS_FLIGHTS_RATIO)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+Ratios_post1995 |>
+  ggplot(aes(x = FLIGHTS, y = CARRIER_DELAY_VS_FLIGHTS_RATIO)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+Ratios_post1995 |>
+  ggplot(aes(x = AGE, y = CARRIER_DELAY_VS_COUNT_RATIO)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+
+```{r}
+Ratios_post1995 |>
+  ggplot(aes(x = FLIGHTS, y = CARRIER_DELAY_VS_COUNT_RATIO)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+
+```{r}
+Ratios_post1995 |>
+  ggplot(aes(x = DISTANCE, y = CARRIER_DELAY_VS_COUNT_RATIO)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
