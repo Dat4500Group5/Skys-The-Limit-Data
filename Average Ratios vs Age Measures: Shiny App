@@ -1,0 +1,657 @@
+
+library(shiny)
+library(ggplot2)
+library(dplyr)
+
+# UI
+ui <- fluidPage(
+  titlePanel("Aircraft Delay & Cancellation Visualization"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("plot_option", "Select Plot Option:",
+                  choices = c(
+                    "Carrier Delay Ratio vs. Carrier Delay Count" = "option1",
+                    "Count Carrier Delay Ratio vs Count Carrier Delay" = "option2",
+                    "Late Aircraft Delay Ratio vs Count Late Aircraft Delay" = "option3",
+                    "Count Late Aircraft Delay Ratio vs Count Late Aircraft Delay" = "option4",
+                    "Count Carrier Cancellation Ratio vs Count Carrier Cancellation" = "option5"
+                  ),
+                  selected = "option1"),
+      
+      # Filter options
+      selectInput("filter_variable", "Filter by:",
+                  choices = c(
+                    "None" = "none",
+                    "State" = "STATE",
+                    "Region" = "REGION",
+                    "Aircraft Type" = "TYPE_AIRCRAFT",
+                    "Engine Type" = "TYPE_ENGINE",
+                    "Registrant Type" = "TYPE_REGISTRANT"
+                  ),
+                  selected = "none"),
+      
+      # This UI will be dynamically populated based on the filter choice
+      uiOutput("filter_values_ui"),
+      
+      # Color by option
+      selectInput("color_by", "Color by:",
+                  choices = c(
+                    "None" = "none",
+                    "State" = "STATE",
+                    "Region" = "REGION",
+                    "Aircraft Type" = "TYPE_AIRCRAFT", 
+                    "Engine Type" = "TYPE_ENGINE",
+                    "Registrant Type" = "TYPE_REGISTRANT"
+                  ),
+                  selected = "none"),
+      
+      # Number of color groups to display (when coloring by a categorical variable)
+      conditionalPanel(
+        condition = "input.color_by != 'none'",
+        sliderInput("top_n_groups", "Number of groups to display:", 
+                    min = 2, max = 15, value = 5)
+      ),
+      
+      width = 3
+    ),
+    
+    mainPanel(
+      tabsetPanel(
+        id = "tabs",
+        tabPanel("By Aircraft Age", plotOutput("agePlot", height = "600px")),
+        tabPanel("By Flight Count", plotOutput("flightCountPlot", height = "600px")),
+        tabPanel("By Distance", plotOutput("distancePlot", height = "600px")),
+        tabPanel("By Air Time", plotOutput("airTimePlot", height = "600px")),
+        tabPanel("Comparison", plotOutput("allMetricsPlot", height = "600px"))
+      ),
+      width = 9
+    )
+  )
+)
+
+# Server
+server <- function(input, output, session) {
+  
+  # Define variable pairs based on selection
+  get_variables <- reactive({
+    switch(input$plot_option,
+           "option1" = list(
+             x_var = "COUNT_CARRIER_DELAY_30",
+             y_var = "COUNT_CARRIER_DELAY_30_RATIO",
+             x_label = "Carrier Delay Count (>30 min)",
+             y_label = "Carrier Delay Ratio (>30 min)"
+           ),
+           "option2" = list(
+             x_var = "CARRIER_DELAY_30",
+             y_var = "CARRIER_DELAY_30_RATIO",
+             x_label = "Count Carrier Delay",
+             y_label = "Count Carrier Delay Ratio"
+           ),
+           "option3" = list(
+             x_var = "COUNT_LATE_AIRCRAFT_DELAY_30",
+             y_var = "COUNT_LATE_AIRCRAFT_DELAY_30_RATIO",
+             x_label = "Count Late Aircraft Delay",
+             y_label = "Late Aircraft Delay Ratio (>30 min)"
+           ),
+           "option4" = list(
+             x_var = "LATE_AIRCRAFT_DELAY_30",
+             y_var = "LATE_AIRCRAFT_DELAY_30_RATIO",
+             x_label = "Count Late Aircraft Delay",
+             y_label = "Count Late Aircraft Delay Ratio (>30 min)"
+           ),
+           "option5" = list(
+             x_var = "COUNT_CARRIER_CANCELLATION",
+             y_var = "COUNT_CARRIER_CANCELLATION_RATIO",
+             x_label = "Count Carrier Cancellation",
+             y_label = "Count Carrier Cancellation Ratio"
+           )
+    )
+  })
+  
+  # Dynamic UI for filter values based on selected filter variable
+  output$filter_values_ui <- renderUI({
+    filter_var <- input$filter_variable
+    
+    if (filter_var == "none") {
+      return(NULL)
+    }
+    
+    # Get unique values for the selected filter variable
+    unique_values <- unique(Ratios_2[[filter_var]])
+    
+    # If there are too many values, get the top ones by frequency
+    if (length(unique_values) > 20) {
+      top_values <- Ratios_2 %>%
+        group_by(.data[[filter_var]]) %>%
+        summarize(count = n()) %>%
+        arrange(desc(count)) %>%
+        head(20) %>%
+        pull(1)
+      
+      unique_values <- top_values
+    }
+    
+    # Create a multiple selection input
+    selectInput(
+      inputId = "filter_values",
+      label = paste("Select", gsub("_", " ", filter_var), "Values:"),
+      choices = unique_values,
+      multiple = TRUE,
+      selected = unique_values[1:min(5, length(unique_values))]
+    )
+  })
+  
+  # Filter data based on user selection
+  filtered_data <- reactive({
+    data <- Ratios_2
+    
+    # Apply filter if one is selected
+    if (input$filter_variable != "none" && !is.null(input$filter_values)) {
+      data <- data %>%
+        filter(.data[[input$filter_variable]] %in% input$filter_values)
+    }
+    
+    return(data)
+  })
+  
+  # Generate plot by aircraft age with dual y-axes
+  output$agePlot <- renderPlot({
+    vars <- get_variables()
+    data <- filtered_data()
+    
+    # Prepare data - group by AGE and color_by if selected
+    if (input$color_by != "none") {
+      # Get top N groups by frequency
+      top_groups <- data %>%
+        group_by(.data[[input$color_by]]) %>%
+        summarize(count = n()) %>%
+        arrange(desc(count)) %>%
+        head(input$top_n_groups) %>%
+        pull(1)
+      
+      # Filter to only include top groups and then summarize
+      summary_data <- data %>%
+        filter(.data[[input$color_by]] %in% top_groups) %>%
+        group_by(.data[[input$color_by]], AGE) %>%
+        summarize(
+          avg_count = mean(.data[[vars$x_var]], na.rm = TRUE),
+          avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+          .groups = "drop"
+        )
+      
+      # Create the colored plot
+      p <- ggplot(summary_data, aes(x = AGE, y = avg_ratio, color = .data[[input$color_by]])) +
+        geom_line(size = 1) +
+        geom_point(size = 2) +
+        labs(
+          x = "Aircraft Age",
+          y = vars$y_label,
+          title = paste(vars$y_label, "by Aircraft Age"),
+          subtitle = paste("Colored by", gsub("_", " ", input$color_by))
+        ) +
+        theme_minimal() +
+        theme(legend.position = "right")
+    } else {
+      # Without color grouping - use dual y-axis
+      summary_data <- data %>%
+        group_by(AGE) %>%
+        summarize(
+          avg_count = mean(.data[[vars$x_var]], na.rm = TRUE),
+          avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+          .groups = "drop"
+        )
+      
+      # Calculate ratio for scaling the second y-axis
+      count_max <- max(summary_data$avg_count, na.rm = TRUE)
+      ratio_max <- max(summary_data$avg_ratio, na.rm = TRUE)
+      scale_factor <- ifelse(count_max == 0, 1, ratio_max/count_max)
+      
+      # Create the plot with two y-axes
+      p <- ggplot(summary_data) +
+        # First line for ratio (left y-axis)
+        geom_line(aes(x = AGE, y = avg_ratio, color = "Ratio"), size = 1.2) +
+        geom_point(aes(x = AGE, y = avg_ratio, color = "Ratio"), size = 2) +
+        
+        # Second line for count (right y-axis, scaled)
+        geom_line(aes(x = AGE, y = avg_count * scale_factor, color = "Count"), 
+                  size = 1.2, linetype = "dashed") +
+        geom_point(aes(x = AGE, y = avg_count * scale_factor, color = "Count"), 
+                   size = 2) +
+        
+        # Primary axis (left) - for ratio
+        scale_y_continuous(
+          name = vars$y_label,
+          # Secondary axis (right) - for count, properly scaled
+          sec.axis = sec_axis(~./scale_factor, name = vars$x_label)
+        ) +
+        
+        labs(
+          x = "Aircraft Age",
+          title = paste(vars$y_label, "and", vars$x_label, "by Aircraft Age (2003–2024)")
+        ) +
+        scale_color_manual(values = c("Ratio" = "darkred", "Count" = "darkblue"),
+                           name = "Metric") +
+        theme_minimal() +
+        theme(
+          legend.position = "bottom",
+          axis.title.y.left = element_text(color = "darkred"),
+          axis.text.y.left = element_text(color = "darkred"),
+          axis.title.y.right = element_text(color = "darkblue"),
+          axis.text.y.right = element_text(color = "darkblue")
+        )
+    }
+    
+    return(p)
+  })
+  
+  # Generate plot by flight count (binned)
+  output$flightCountPlot <- renderPlot({
+    vars <- get_variables()
+    data <- filtered_data()
+    
+    # Create bins for flight count
+    bins_data <- data %>%
+      # Remove potential outliers or NA values
+      filter(!is.na(FLIGHTS), FLIGHTS > 0)
+    
+    if (input$color_by != "none") {
+      # Get top N groups by frequency
+      top_groups <- bins_data %>%
+        group_by(.data[[input$color_by]]) %>%
+        summarize(count = n()) %>%
+        arrange(desc(count)) %>%
+        head(input$top_n_groups) %>%
+        pull(1)
+      
+      # Filter to include only top groups
+      bins_data <- bins_data %>%
+        filter(.data[[input$color_by]] %in% top_groups)
+      
+      # Create 25 bins based on flight count
+      bins_data <- bins_data %>%
+        mutate(
+          bin_flight = cut(FLIGHTS, 
+                           breaks = 25,
+                           labels = FALSE)
+        )
+      
+      # Calculate average values for each bin and color group
+      summary_data <- bins_data %>%
+        group_by(.data[[input$color_by]], bin_flight) %>%
+        summarize(
+          avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+          bin_center = mean(FLIGHTS, na.rm = TRUE),
+          .groups = "drop"
+        )
+      
+      # Create the colored plot
+      p <- ggplot(summary_data, aes(x = bin_center, y = avg_ratio, color = .data[[input$color_by]])) +
+        geom_line(size = 1) +
+        geom_point(size = 2) +
+        labs(
+          x = "Flight Count",
+          y = vars$y_label,
+          title = paste(vars$y_label, "by Flight Count"),
+          subtitle = paste("Colored by", gsub("_", " ", input$color_by))
+        ) +
+        theme_minimal() +
+        theme(legend.position = "right")
+    } else {
+      # Without color grouping - use dual y-axis
+      bins_data <- bins_data %>%
+        # Create 25 bins based on flight count
+        mutate(
+          bin_flight = cut(FLIGHTS, 
+                           breaks = 25,
+                           labels = FALSE)
+        )
+      
+      # Calculate average values for each bin
+      summary_data <- bins_data %>%
+        group_by(bin_flight) %>%
+        summarize(
+          avg_count = mean(.data[[vars$x_var]], na.rm = TRUE),
+          avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+          bin_center = mean(FLIGHTS, na.rm = TRUE),
+          .groups = "drop"
+        )
+      
+      # Calculate ratio for scaling the second y-axis
+      count_max <- max(summary_data$avg_count, na.rm = TRUE)
+      ratio_max <- max(summary_data$avg_ratio, na.rm = TRUE)
+      scale_factor <- ifelse(count_max == 0, 1, ratio_max/count_max)
+      
+      # Create the plot with two y-axes
+      p <- ggplot(summary_data) +
+        # First line for ratio (left y-axis)
+        geom_line(aes(x = bin_center, y = avg_ratio, color = "Ratio"), size = 1.2) +
+        geom_point(aes(x = bin_center, y = avg_ratio, color = "Ratio"), size = 2) +
+        
+        # Second line for count (right y-axis, scaled)
+        geom_line(aes(x = bin_center, y = avg_count * scale_factor, color = "Count"), 
+                  size = 1.2, linetype = "dashed") +
+        geom_point(aes(x = bin_center, y = avg_count * scale_factor, color = "Count"), 
+                   size = 2) +
+        
+        # Primary axis (left) - for ratio
+        scale_y_continuous(
+          name = vars$y_label,
+          # Secondary axis (right) - for count, properly scaled
+          sec.axis = sec_axis(~./scale_factor, name = vars$x_label)
+        ) +
+        
+        labs(
+          x = "Flight Count",
+          title = paste(vars$y_label, "and", vars$x_label, "by Flight Count")
+        ) +
+        scale_color_manual(values = c("Ratio" = "darkred", "Count" = "darkblue"),
+                           name = "Metric") +
+        theme_minimal() +
+        theme(
+          legend.position = "bottom",
+          axis.title.y.left = element_text(color = "darkred"),
+          axis.text.y.left = element_text(color = "darkred"),
+          axis.title.y.right = element_text(color = "darkblue"),
+          axis.text.y.right = element_text(color = "darkblue")
+        )
+    }
+    
+    return(p)
+  })
+  
+  # Generate plot by distance (binned)
+  output$distancePlot <- renderPlot({
+    vars <- get_variables()
+    data <- filtered_data()
+    
+    # Create bins for distance
+    bins_data <- data %>%
+      # Remove potential outliers or NA values
+      filter(!is.na(DISTANCE), DISTANCE > 0)
+    
+    if (input$color_by != "none") {
+      # Get top N groups by frequency
+      top_groups <- bins_data %>%
+        group_by(.data[[input$color_by]]) %>%
+        summarize(count = n()) %>%
+        arrange(desc(count)) %>%
+        head(input$top_n_groups) %>%
+        pull(1)
+      
+      # Filter to include only top groups
+      bins_data <- bins_data %>%
+        filter(.data[[input$color_by]] %in% top_groups)
+      
+      # Create 25 bins based on distance
+      bins_data <- bins_data %>%
+        mutate(
+          bin_distance = cut(DISTANCE, 
+                             breaks = 25,
+                             labels = FALSE)
+        )
+      
+      # Calculate average values for each bin and color group
+      summary_data <- bins_data %>%
+        group_by(.data[[input$color_by]], bin_distance) %>%
+        summarize(
+          avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+          bin_center = mean(DISTANCE, na.rm = TRUE),
+          .groups = "drop"
+        )
+      
+      # Create the colored plot
+      p <- ggplot(summary_data, aes(x = bin_center, y = avg_ratio, color = .data[[input$color_by]])) +
+        geom_line(size = 1) +
+        geom_point(size = 2) +
+        labs(
+          x = "Distance (miles)",
+          y = vars$y_label,
+          title = paste(vars$y_label, "by Flight Distance"),
+          subtitle = paste("Colored by", gsub("_", " ", input$color_by))
+        ) +
+        theme_minimal() +
+        theme(legend.position = "right")
+    } else {
+      # Without color grouping - use dual y-axis
+      bins_data <- bins_data %>%
+        # Create 25 bins based on distance
+        mutate(
+          bin_distance = cut(DISTANCE, 
+                             breaks = 25,
+                             labels = FALSE)
+        )
+      
+      # Calculate average values for each bin
+      summary_data <- bins_data %>%
+        group_by(bin_distance) %>%
+        summarize(
+          avg_count = mean(.data[[vars$x_var]], na.rm = TRUE),
+          avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+          bin_center = mean(DISTANCE, na.rm = TRUE),
+          .groups = "drop"
+        )
+      
+      # Calculate ratio for scaling the second y-axis
+      count_max <- max(summary_data$avg_count, na.rm = TRUE)
+      ratio_max <- max(summary_data$avg_ratio, na.rm = TRUE)
+      scale_factor <- ifelse(count_max == 0, 1, ratio_max/count_max)
+      
+      # Create the plot with two y-axes
+      p <- ggplot(summary_data) +
+        # First line for ratio (left y-axis)
+        geom_line(aes(x = bin_center, y = avg_ratio, color = "Ratio"), size = 1.2) +
+        geom_point(aes(x = bin_center, y = avg_ratio, color = "Ratio"), size = 2) +
+        
+        # Second line for count (right y-axis, scaled)
+        geom_line(aes(x = bin_center, y = avg_count * scale_factor, color = "Count"), 
+                  size = 1.2, linetype = "dashed") +
+        geom_point(aes(x = bin_center, y = avg_count * scale_factor, color = "Count"), 
+                   size = 2) +
+        
+        # Primary axis (left) - for ratio
+        scale_y_continuous(
+          name = vars$y_label,
+          # Secondary axis (right) - for count, properly scaled
+          sec.axis = sec_axis(~./scale_factor, name = vars$x_label)
+        ) +
+        
+        labs(
+          x = "Distance (miles)",
+          title = paste(vars$y_label, "and", vars$x_label, "by Flight Distance")
+        ) +
+        scale_color_manual(values = c("Ratio" = "darkred", "Count" = "darkblue"),
+                           name = "Metric") +
+        theme_minimal() +
+        theme(
+          legend.position = "bottom",
+          axis.title.y.left = element_text(color = "darkred"),
+          axis.text.y.left = element_text(color = "darkred"),
+          axis.title.y.right = element_text(color = "darkblue"),
+          axis.text.y.right = element_text(color = "darkblue")
+        )
+    }
+    
+    return(p)
+  })
+  
+  # Generate plot by air time (binned)
+  output$airTimePlot <- renderPlot({
+    vars <- get_variables()
+    data <- filtered_data()
+    
+    # Create bins for air time
+    bins_data <- data %>%
+      # Remove potential outliers or NA values
+      filter(!is.na(AIR_TIME), AIR_TIME > 0)
+    
+    if (input$color_by != "none") {
+      # Get top N groups by frequency
+      top_groups <- bins_data %>%
+        group_by(.data[[input$color_by]]) %>%
+        summarize(count = n()) %>%
+        arrange(desc(count)) %>%
+        head(input$top_n_groups) %>%
+        pull(1)
+      
+      # Filter to include only top groups
+      bins_data <- bins_data %>%
+        filter(.data[[input$color_by]] %in% top_groups)
+      
+      # Create 25 bins based on air time
+      bins_data <- bins_data %>%
+        mutate(
+          bin_air_time = cut(AIR_TIME, 
+                             breaks = 25,
+                             labels = FALSE)
+        )
+      
+      # Calculate average values for each bin and color group
+      summary_data <- bins_data %>%
+        group_by(.data[[input$color_by]], bin_air_time) %>%
+        summarize(
+          avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+          bin_center = mean(AIR_TIME, na.rm = TRUE),
+          .groups = "drop"
+        )
+      
+      # Create the colored plot
+      p <- ggplot(summary_data, aes(x = bin_center, y = avg_ratio, color = .data[[input$color_by]])) +
+        geom_line(size = 1) +
+        geom_point(size = 2) +
+        labs(
+          x = "Air Time (minutes)",
+          y = vars$y_label,
+          title = paste(vars$y_label, "by Air Time"),
+          subtitle = paste("Colored by", gsub("_", " ", input$color_by))
+        ) +
+        theme_minimal() +
+        theme(legend.position = "right")
+    } else {
+      # Without color grouping - use dual y-axis
+      bins_data <- bins_data %>%
+        # Create 25 bins based on air time
+        mutate(
+          bin_air_time = cut(AIR_TIME, 
+                             breaks = 25,
+                             labels = FALSE)
+        )
+      
+      # Calculate average values for each bin
+      summary_data <- bins_data %>%
+        group_by(bin_air_time) %>%
+        summarize(
+          avg_count = mean(.data[[vars$x_var]], na.rm = TRUE),
+          avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+          bin_center = mean(AIR_TIME, na.rm = TRUE),
+          .groups = "drop"
+        )
+      
+      # Calculate ratio for scaling the second y-axis
+      count_max <- max(summary_data$avg_count, na.rm = TRUE)
+      ratio_max <- max(summary_data$avg_ratio, na.rm = TRUE)
+      scale_factor <- ifelse(count_max == 0, 1, ratio_max/count_max)
+      
+      # Create the plot with two y-axes
+      p <- ggplot(summary_data) +
+        # First line for ratio (left y-axis)
+        geom_line(aes(x = bin_center, y = avg_ratio, color = "Ratio"), size = 1.2) +
+        geom_point(aes(x = bin_center, y = avg_ratio, color = "Ratio"), size = 2) +
+        
+        # Second line for count (right y-axis, scaled)
+        geom_line(aes(x = bin_center, y = avg_count * scale_factor, color = "Count"), 
+                  size = 1.2, linetype = "dashed") +
+        geom_point(aes(x = bin_center, y = avg_count * scale_factor, color = "Count"), 
+                   size = 2) +
+        
+        # Primary axis (left) - for ratio
+        scale_y_continuous(
+          name = vars$y_label,
+          # Secondary axis (right) - for count, properly scaled
+          sec.axis = sec_axis(~./scale_factor, name = vars$x_label)
+        ) +
+        
+        labs(
+          x = "Air Time (minutes)",
+          title = paste(vars$y_label, "and", vars$x_label, "by Air Time")
+        ) +
+        scale_color_manual(values = c("Ratio" = "darkred", "Count" = "darkblue"),
+                           name = "Metric") +
+        theme_minimal() +
+        theme(
+          legend.position = "bottom",
+          axis.title.y.left = element_text(color = "darkred"),
+          axis.text.y.left = element_text(color = "darkred"),
+          axis.title.y.right = element_text(color = "darkblue"),
+          axis.text.y.right = element_text(color = "darkblue")
+        )
+    }
+    
+    return(p)
+  })
+  
+  # Generate comparison plot showing all metrics on one normalized scale
+  output$allMetricsPlot <- renderPlot({
+    vars <- get_variables()
+    data <- filtered_data()
+    
+    # Function to prepare data for a specific variable
+    prepare_binned_data <- function(var_name, num_bins = 25) {
+      data %>%
+        filter(!is.na(.data[[var_name]]), .data[[var_name]] > 0) %>%
+        mutate(
+          bin = cut(.data[[var_name]], breaks = num_bins, labels = FALSE)
+        ) %>%
+        group_by(bin) %>%
+        summarize(
+          metric_value = mean(.data[[var_name]], na.rm = TRUE),
+          avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+          variable = var_name,
+          .groups = "drop"
+        )
+    }
+    
+    # Prepare data for each metric
+    age_data <- prepare_binned_data("AGE") %>%
+      mutate(scaled_metric = scale(metric_value)[,1])  # Standardize for comparison
+    
+    flights_data <- prepare_binned_data("FLIGHTS") %>%
+      mutate(scaled_metric = scale(metric_value)[,1])
+    
+    distance_data <- prepare_binned_data("DISTANCE") %>%
+      mutate(scaled_metric = scale(metric_value)[,1])
+    
+    air_time_data <- prepare_binned_data("AIR_TIME") %>%
+      mutate(scaled_metric = scale(metric_value)[,1])
+    
+    # Combine all data
+    all_data <- bind_rows(
+      age_data %>% mutate(variable = "Aircraft Age"),
+      flights_data %>% mutate(variable = "Flight Count"),
+      distance_data %>% mutate(variable = "Distance"),
+      air_time_data %>% mutate(variable = "Air Time")
+    )
+    
+    # Create the comparison plot
+    p <- ggplot(all_data, aes(x = scaled_metric, y = avg_ratio, color = variable)) +
+      geom_smooth(method = "loess", se = FALSE, size = 1.2) +
+      geom_point(size = 2, alpha = 0.6) +
+      labs(
+        x = "Normalized Value (Z-score)",
+        y = vars$y_label,
+        title = paste("Comparison of", vars$y_label, "Across Multiple Metrics"),
+        subtitle = "Each metric normalized to allow comparison"
+      ) +
+      scale_color_brewer(palette = "Set1", name = "Metric") +
+      theme_minimal() +
+      theme(
+        legend.position = "bottom",
+        panel.grid.minor = element_blank()
+      )
+    
+    return(p)
+  })
+}
+
+# Run the app
+shinyApp(ui = ui, server = server)
