@@ -1,0 +1,146 @@
+
+library(shiny)
+library(ggplot2)
+library(dplyr)
+
+# UI
+ui <- fluidPage(
+  titlePanel("Aircraft Delay & Cancellation Visualization"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("plot_option", "Select Plot Option:",
+                  choices = c(
+                    "Carrier Delay Ratio vs. Carrier Delay Count" = "option1",
+                    "Count Carrier Delay Ratio vs Count Carrier Delay" = "option2",
+                    "Late Aircraft Delay Ratio vs Count Late Aircraft Delay" = "option3",
+                    "Count Late Aircraft Delay Ratio vs Count Late Aircraft Delay" = "option4",
+                    "Count Carrier Cancellation Ratio vs Count Carrier Cancellation" = "option5"
+                  ),
+                  selected = "option1"),
+      checkboxInput("show_flights", "Show Average Annual Flights", value = TRUE),
+      width = 3
+    ),
+    
+    mainPanel(
+      plotOutput("mainPlot", height = "600px"),
+      width = 9
+    )
+  )
+)
+
+# Server
+server <- function(input, output) {
+  
+  # Define variable pairs based on selection
+  get_variables <- reactive({
+    switch(input$plot_option,
+           "option1" = list(
+             x_var = "COUNT_CARRIER_DELAY_30",
+             y_var = "COUNT_CARRIER_DELAY_30_RATIO",
+             x_label = "Carrier Delay Count (>30 min)",
+             y_label = "Carrier Delay Ratio (>30 min)"
+           ),
+           "option2" = list(
+             x_var = "COUNT_CARRIER_DELAY",
+             y_var = "COUNT_CARRIER_DELAY_RATIO",
+             x_label = "Count Carrier Delay",
+             y_label = "Count Carrier Delay Ratio"
+           ),
+           "option3" = list(
+             x_var = "COUNT_LATE_AIRCRAFT_DELAY",
+             y_var = "LATE_AIRCRAFT_DELAY_30_RATIO",
+             x_label = "Count Late Aircraft Delay",
+             y_label = "Late Aircraft Delay Ratio (>30 min)"
+           ),
+           "option4" = list(
+             x_var = "COUNT_LATE_AIRCRAFT_DELAY",
+             y_var = "COUNT_LATE_AIRCRAFT_DELAY_30_RATIO",
+             x_label = "Count Late Aircraft Delay",
+             y_label = "Count Late Aircraft Delay Ratio (>30 min)"
+           ),
+           "option5" = list(
+             x_var = "COUNT_CARRIER_CANCELLATION",
+             y_var = "COUNT_CARRIER_CANCELLATION_RATIO",
+             x_label = "Count Carrier Cancellation",
+             y_label = "Count Carrier Cancellation Ratio"
+           )
+    )
+  })
+  
+  # Generate plot with dual y-axes and flight volume shading
+  output$mainPlot <- renderPlot({
+    vars <- get_variables()
+    
+    # Group by aircraft age
+    summary_data <- Ratios_2 %>%
+      group_by(AGE) %>%
+      summarize(
+        avg_count = mean(.data[[vars$x_var]], na.rm = TRUE),
+        avg_ratio = mean(.data[[vars$y_var]], na.rm = TRUE),
+        avg_annual_flights = mean(FLIGHTS_ANNUAL, na.rm = TRUE)  # Add average annual flights
+      )
+    
+    # Calculate ratio for scaling the second y-axis
+    count_max <- max(summary_data$avg_count, na.rm = TRUE)
+    ratio_max <- max(summary_data$avg_ratio, na.rm = TRUE)
+    scale_factor <- ratio_max/count_max
+    
+    # Create the plot with two y-axes
+    p <- ggplot(summary_data) +
+      # Add flight volume as area if checked
+      {if(input$show_flights) 
+        geom_area(aes(x = AGE, y = avg_ratio * avg_annual_flights / max(avg_annual_flights, na.rm = TRUE)), 
+                  fill = "grey70", alpha = 0.3)} +
+      
+      # First line for ratio (left y-axis)
+      geom_line(aes(x = AGE, y = avg_ratio, color = "Ratio"), size = 1.2) +
+      geom_point(aes(x = AGE, y = avg_ratio, color = "Ratio"), size = 2) +
+      
+      # Second line for count (right y-axis, scaled)
+      geom_line(aes(x = AGE, y = avg_count * scale_factor, color = "Count"), 
+                size = 1.2, linetype = "dashed") +
+      geom_point(aes(x = AGE, y = avg_count * scale_factor, color = "Count"), 
+                 size = 2) +
+      
+      # Primary axis (left) - for ratio
+      scale_y_continuous(
+        name = vars$y_label,
+        # Secondary axis (right) - for count, properly scaled
+        sec.axis = sec_axis(~./scale_factor, name = vars$x_label)
+      ) +
+      
+      labs(
+        x = "Aircraft Age",
+        title = paste(vars$y_label, "and", vars$x_label, "by Aircraft Age (2003–2024)"),
+        subtitle = if(input$show_flights) "Grey area represents relative annual flight volume" else NULL
+      ) +
+      scale_color_manual(values = c("Ratio" = "darkred", "Count" = "darkblue"),
+                         name = "Metric") +
+      theme_minimal() +
+      theme(
+        legend.position = "bottom",
+        axis.title.y.left = element_text(color = "darkred"),
+        axis.text.y.left = element_text(color = "darkred"),
+        axis.title.y.right = element_text(color = "darkblue"),
+        axis.text.y.right = element_text(color = "darkblue"),
+        plot.title = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 11, face = "italic"),
+        axis.title = element_text(size = 12),
+        legend.text = element_text(size = 11)
+      )
+    
+    # Add a legend for the flight volume if shown
+    if(input$show_flights) {
+      p <- p + annotate("text", x = max(summary_data$AGE, na.rm = TRUE) * 0.8, 
+                        y = max(summary_data$avg_ratio, na.rm = TRUE) * 0.2,
+                        label = "Flight Volume", color = "grey40",
+                        fontface = "italic", size = 4)
+    }
+    
+    p
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
