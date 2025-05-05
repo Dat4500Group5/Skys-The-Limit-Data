@@ -48,9 +48,27 @@ server <- function(input, output) {
       # Scatterplot filtered by selected year
       filtered_data <- Ratios_2 %>% filter(YEAR == input$year)
       
+      # Fit linear model
+      formula <- as.formula(paste(input$yvar, "~", input$xvar))
+      model <- lm(formula, data = filtered_data)
+      coef <- coef(model)
+      
+      # Format regression equation text
+      intercept <- round(coef[1], 4)
+      slope <- round(coef[2], 10)
+      eq_label <- paste0("y = ", intercept,
+                         ifelse(slope >= 0, " + ", " - "),
+                         abs(slope), "x")
+      
       ggplot(filtered_data, aes(x = .data[[input$xvar]], y = .data[[input$yvar]])) +
         geom_point(alpha = 0.6) +
         geom_smooth(method = "lm", se = TRUE, color = "blue") +
+        annotate("text",
+                 x = min(filtered_data[[input$xvar]], na.rm = TRUE),
+                 y = max(filtered_data[[input$yvar]], na.rm = TRUE),
+                 label = eq_label,
+                 hjust = 0, vjust = 1.2,
+                 size = 5, color = "black") +
         labs(
           x = input$xvar,
           y = input$yvar,
