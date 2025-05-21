@@ -1,0 +1,48 @@
+---
+title: "Model with Transformed Variables"
+author: "Author Name"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(openintro)
+library(car)
+library(ggplot2)
+```
+
+
+#import data
+Ratios_2 <- read.csv("ratios_2.csv")
+
+
+### Transform Variables
+```{r tranform variables}
+Ratios_2$AGE_z       <- scale(Ratios_2$AGE)[, 1]
+Ratios_2$AIR_TIME_z  <- scale(Ratios_2$AIR_TIME)[, 1]
+Ratios_2$FLIGHTS_z   <- scale(Ratios_2$FLIGHTS)[, 1]
+Ratios_2$DISTANCE_z  <- scale(Ratios_2$DISTANCE)[, 1]
+
+summary(Ratios_2$FLIGHTS_z)
+sd(Ratios_2$FLIGHTS_z)  # Should be 1
+
+```
+
+### Model
+
+This model has fewer zeros and explains 15.5% of variablity in delays.
+
+```{r model}
+multi_model <- lm(CARRIER_DELAY_30_RATIO ~ AGE_z + FLIGHTS_ANNUAL + FLIGHTS_z + I(DISTANCE_z + AIR_TIME_z), data = Ratios_2)
+
+summary(multi_model)
+```
+...
+
+```{r test}
+summary(Ratios_2$FLIGHTS_z)
+summary(Ratios_2$FLIGHTS)
+summary(Ratios_2$AGE_z)
+
+```
