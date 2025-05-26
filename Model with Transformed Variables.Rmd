@@ -45,4 +45,9 @@ summary(Ratios_2$FLIGHTS_z)
 summary(Ratios_2$FLIGHTS)
 summary(Ratios_2$AGE_z)
 
+
+
+Ratios_2$AGE_SD       <- scale(Ratios_2$AGE)[, 1]
+
+Ratios_2$FLIGHTS_SD   <- scale(Ratios_2$FLIGHTS)[, 1]
 ```
