@@ -37,3 +37,40 @@ Logistic5E3model <- glm(delayed30 ~ AIR_TIME_SD + AGE_SD + FLIGHTS_SD + DISTANCE
 
 Logistic5E3model  
 
+#Airtime and distance are very correlated
+#no Airtime
+Logistic5E3modelDistance <- glm(delayed30 ~ AIR_TIME_SD + AGE_SD + FLIGHTS_SD + DISTANCE_SD, data = log5E3Expanded, family = binomial)
+
+Logistic5E3modelDistance
+
+#No Distance
+Logistic5E3modelAirtime <- glm(delayed30 ~ AIR_TIME_SD + AGE_SD + FLIGHTS_SD, data = log5E3Expanded, family = binomial)
+
+Logistic5E3modelAirtime
+
+
+
+
+#Cancelled flights
+log5E3Cancelled <- logisticData5E3 |>
+  rowwise() |>
+  mutate(
+    delayed_flags = list(c(rep(1, COUNT_CARRIER_CANCELLATION), rep(0, FLIGHTS_ANNUAL - COUNT_CARRIER_CANCELLATION)))
+  ) |>
+  unnest_longer(delayed_flags, values_to = "delayed30") |>
+  ungroup()
+
+Logistic5E3Cancelled <- glm(delayed30 ~ AIR_TIME_SD + AGE_SD + FLIGHTS_SD + DISTANCE_SD, data = log5E3Expanded, family = binomial)
+
+Logistic5E3Cancelled
+
+#Distance and Airtime are very correlated
+#no Airtime
+Logistic5E3CancelledDistance <- glm(delayed30 ~ AGE_SD + FLIGHTS_SD + DISTANCE_SD, data = log5E3Expanded, family = binomial)
+
+Logistic5E3CancelledDistance
+
+#No Distance
+Logistic5E3CancelledAirtime <- glm(delayed30 ~ AIR_TIME_SD + AGE_SD + FLIGHTS_SD, data = log5E3Expanded, family = binomial)
+
+Logistic5E3CancelledAirtime
